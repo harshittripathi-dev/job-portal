@@ -312,6 +312,9 @@ footer{
         <a href="dashboard.php">Dashboard</a>
         <a href="my-applications.php">Applications</a>
         <a href="profile.php" class="nav-btn">My Profile</a>
+        <a href="jobs.php?recommended=1" class="ai-recommend-btn">
+    ✨ Recommended For You
+</a>
     </div>
 </nav>
 
