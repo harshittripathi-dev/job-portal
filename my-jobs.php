@@ -1201,7 +1201,7 @@ $result = $stmt->get_result();
                     <!-- VIEW APPLICATIONS -->
 
                     <a
-                        href="applications.php"
+                        href="applications.php?job_id=<?php echo (int) $row["id"]; ?>"
                         class="action-btn view-btn"
                     >
                         View Applications

@@ -15,8 +15,25 @@ if (!isset($_SESSION["user_id"])) {
     exit();
 }
 
-$user_id = $_SESSION["user_id"];
+$user_id = (int) $_SESSION["user_id"];
 $name = $_SESSION["name"] ?? "User";
+$role = strtolower($_SESSION["role"] ?? "student");
+
+if (!in_array($role, ["student", "employer", "admin"], true)) {
+    header("Location: dashboard.php");
+    exit();
+}
+
+$job_id = filter_input(INPUT_GET, "job_id", FILTER_VALIDATE_INT);
+$job_id = $job_id !== false && $job_id !== null ? $job_id : 0;
+
+if (empty($_SESSION["csrf_token"])) {
+    $_SESSION["csrf_token"] = bin2hex(random_bytes(32));
+}
+
+$success = $_SESSION["application_success"] ?? "";
+$error = $_SESSION["application_error"] ?? "";
+unset($_SESSION["application_success"], $_SESSION["application_error"]);
 
 /*
 |--------------------------------------------------------------------------
@@ -36,17 +53,43 @@ $sql = "
         jobs.company,
         jobs.location,
         jobs.salary,
-        jobs.description
+        jobs.description,
+
+        users.name AS applicant_name,
+        users.email AS applicant_email
 
     FROM applications
 
     INNER JOIN jobs
         ON applications.job_id = jobs.id
 
-    WHERE applications.user_id = ?
+    INNER JOIN users
+        ON applications.user_id = users.id
 
-    ORDER BY applications.applied_at DESC
+    WHERE 1 = 1
+
 ";
+
+$param_types = "";
+$params = [];
+
+if ($role === "student") {
+    $sql .= " AND applications.user_id = ?";
+    $param_types .= "i";
+    $params[] = $user_id;
+} elseif ($role === "employer") {
+    $sql .= " AND jobs.employer_id = ?";
+    $param_types .= "i";
+    $params[] = $user_id;
+}
+
+if ($job_id > 0 && $role !== "student") {
+    $sql .= " AND jobs.id = ?";
+    $param_types .= "i";
+    $params[] = $job_id;
+}
+
+$sql .= " ORDER BY applications.applied_at DESC";
 
 $stmt = $conn->prepare($sql);
 
@@ -54,7 +97,9 @@ if (!$stmt) {
     die("Database error: " . $conn->error);
 }
 
-$stmt->bind_param("i", $user_id);
+if ($params) {
+    $stmt->bind_param($param_types, ...$params);
+}
 $stmt->execute();
 
 $result = $stmt->get_result();
@@ -115,7 +160,7 @@ foreach ($applications as $application) {
     content="width=device-width, initial-scale=1.0"
 >
 
-<title>My Applications - Job In India</title>
+<title><?php echo $role === "student" ? "My Applications" : "Candidate Applications"; ?> - Job In India</title>
 
 <style>
 
@@ -419,6 +464,36 @@ body {
     gap: 15px;
 
     margin-bottom: 20px;
+}
+
+.flash-message {
+    margin: 0 0 22px;
+    padding: 14px 18px;
+    border-radius: 10px;
+    font-weight: 700;
+}
+
+.flash-success {
+    background: #dcfce7;
+    color: #166534;
+}
+
+.flash-error {
+    background: #fee2e2;
+    color: #991b1b;
+}
+
+.status-form {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.status-form select {
+    padding: 9px 10px;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    background: #fff;
 }
 
 .job-title {
@@ -863,14 +938,28 @@ body {
     <div class="page-header">
 
         <h1>
-            My Applications
+            <?php echo $role === "student" ? "My Applications" : "Candidate Applications"; ?>
         </h1>
 
         <p>
-            Track and manage all the jobs you have applied for.
+            <?php if ($role === "student"): ?>
+                Track all the jobs you have applied for.
+            <?php elseif ($role === "admin"): ?>
+                Review candidates and securely update application statuses.
+            <?php else: ?>
+                Review candidates who applied to your job listings.
+            <?php endif; ?>
         </p>
 
     </div>
+
+    <?php if ($success): ?>
+        <div class="flash-message flash-success"><?php echo htmlspecialchars($success); ?></div>
+    <?php endif; ?>
+
+    <?php if ($error): ?>
+        <div class="flash-message flash-error"><?php echo htmlspecialchars($error); ?></div>
+    <?php endif; ?>
 
 
     <!-- =================================================
@@ -1101,6 +1190,16 @@ body {
 
                 </div>
 
+                <?php if ($role !== "student"): ?>
+                    <div class="info-box">
+                        <span class="info-label">Applicant</span>
+                        <span class="info-value">
+                            <?php echo htmlspecialchars($application["applicant_name"]); ?><br>
+                            <?php echo htmlspecialchars($application["applicant_email"]); ?>
+                        </span>
+                    </div>
+                <?php endif; ?>
+
 
                 <div class="info-box">
 
@@ -1212,6 +1311,22 @@ body {
 
 
                 <div class="actions">
+
+                    <?php if ($role === "admin"): ?>
+                        <form method="post" action="update-application-status.php" class="status-form">
+                            <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION["csrf_token"]); ?>">
+                            <input type="hidden" name="application_id" value="<?php echo (int) $application["application_id"]; ?>">
+                            <input type="hidden" name="job_id" value="<?php echo (int) $job_id; ?>">
+                            <select name="status" aria-label="Application status">
+                                <?php foreach (["Applied", "Shortlisted", "Selected", "Rejected"] as $option): ?>
+                                    <option value="<?php echo $option; ?>" <?php echo $status === $option ? "selected" : ""; ?>>
+                                        <?php echo $option; ?>
+                                    </option>
+                                <?php endforeach; ?>
+                            </select>
+                            <button type="submit" class="action-btn job-btn">Update</button>
+                        </form>
+                    <?php endif; ?>
 
 
                     <!-- VIEW JOB -->
